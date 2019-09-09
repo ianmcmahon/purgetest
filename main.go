@@ -251,14 +251,25 @@ func (g *Generator) ping() {
 func main() {
 	gen := &Generator{}
 
-	outFile, err := os.Create("bleed_test.gcode")
-	if err != nil {
-		fmt.Println(err)
+	if len(os.Args) != 2 {
+		fmt.Printf("usage: %s <filename.gcode>\n", os.Args[0])
 		os.Exit(1)
 	}
-	defer outFile.Close()
+	filename := os.Args[1]
 
-	gen.config, err = loadConfig("head.gcode")
+	var err error
+
+	/*
+		outFile, err := os.Create("bleed_test.gcode")
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		defer outFile.Close()
+	*/
+	outFile := os.Stdout
+
+	gen.config, err = loadConfig(filename)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
