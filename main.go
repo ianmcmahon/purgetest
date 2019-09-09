@@ -79,12 +79,16 @@ func (g *Generator) writeStartGCode() {
 
 		fmt.Fprintln(g.out, line)
 	}
+	fmt.Fprintf(g.out, "M82\nG92 E0\n")
+	fmt.Fprintf(g.out, "G1 E-%.3f F%.2f\n", g.config.RetractLength()[0], g.config.RetractSpeed()[0]*60)
+
 	fmt.Fprintln(g.out, "\n; --- END start_gcode ---\n")
 
 	//TODO: hardcoding this for now, need to parse extrusion done in the start code
 	g.extrude(21.5) // priming stroke
 	// is this the right way to add the splice offset?
-	g.extrude(g.config.SpliceOffset())
+	//g.extrude(g.config.SpliceOffset())
+	//g.sinceLastPing -= g.config.SpliceOffset()
 }
 
 func (g *Generator) writeEndGCode() {
@@ -104,11 +108,16 @@ func (g *Generator) writeEndGCode() {
 	fmt.Fprintln(g.out, "\n; --- END end_gcode ---\n")
 }
 
+func startCoords(x, y int) (float64, float64) {
+	atX := float64(x)*70.0 + 10.0
+	atY := 290.0 - (float64(y)*70.0 + 10.0)
+	return atX, atY
+}
+
 // volume in mm3
-// returns length extruded in mm
+// returns ystep where the transition should fall
 func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
-	atX := float64(xIdx)*70.0 + 10.0
-	atY := 290.0 - (float64(yIdx)*70.0 + 10.0)
+	atX, atY := startCoords(xIdx, yIdx)
 
 	lineVolume := 5.0 // 5mm3 per line
 	ystep := g.config.ExtrusionWidth()
@@ -139,12 +148,18 @@ func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
 
 	Y := atY
 	E := 0.0
+	transitionYstep := 0.0
 	// draw the outline first
 	boxHeight := ((volume / lineVolume) + 1) * g.config.ExtrusionWidth()
 	boxWidth := width + g.config.ExtrusionWidth()
 
 	fmt.Fprintf(g.out, "G0 X%.3f Y%.3f F9000\n", atX+boxWidth, atY)
 	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight())
+
+	// assume starting in retracted state
+	fmt.Fprintf(g.out, "M82\nG92 E0\nG4 S0\n")
+	fmt.Fprintf(g.out, "G1 E%.3f F%.2f\n", g.config.RetractLength()[0], g.config.RetractSpeed()[0]*60)
+
 	fmt.Fprintf(g.out, "M82\nG92 E0\n")
 	E += g.extrude((boxHeight * lineXSection) / filamentXsection)
 	fmt.Fprintf(g.out, "G1 Y%.3f E%.4f F4000\n", atY-boxHeight, E)
@@ -166,19 +181,64 @@ func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
 		E += g.extrude(YextrudeLength)
 		Y -= ystep
 		fmt.Fprintf(g.out, "G1 Y%.3f E%.4f\n", Y, E)
+
+		if E < g.config.SpliceOffset() {
+			transitionYstep += ystep
+		}
+
 		E += g.extrude(XextrudeLength)
 		fmt.Fprintf(g.out, "G1 X%.3f E%.4f\n", atX+g.config.ExtrusionWidth()/2, E)
 		E += g.extrude(YextrudeLength)
 		Y -= ystep
 		fmt.Fprintf(g.out, "G1 Y%.3f E%.4f\n", Y, E)
+
+		if E < g.config.SpliceOffset() {
+			transitionYstep += ystep
+		}
 	}
+
+	// retract
+	fmt.Fprintf(g.out, "M82\nG92 E0\n")
+	fmt.Fprintf(g.out, "G1 E-%.3f F%.2f\n", g.config.RetractLength()[0], g.config.RetractSpeed()[0]*60)
+
 	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()+0.5)
 	fmt.Fprintln(g.out, "\n; --- end purge block ---\n")
-	return E
+	return transitionYstep
+}
+
+func (g *Generator) annotate(x, y int, ystep float64) {
+	atX, atY := startCoords(x, y)
+
+	lineVolume := 5.0
+	lineXSection := g.config.ExtrusionWidth() * g.config.LayerHeight()
+	filamentXsection := math.Pi * math.Pow(g.config.FilamentDiameter()[0]/2, 2) // tool 0
+	boxWidth := (lineVolume / lineXSection) - g.config.ExtrusionWidth()
+
+	fmt.Fprintf(g.out, "; ---- annotating ----\n")
+
+	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()*2.5)
+	fmt.Fprintf(g.out, "G1 X%.3f Y%.3f F9000\n", atX, atY-ystep)
+	fmt.Fprintf(g.out, "M83\nG92 E0\n")
+	fmt.Fprintf(g.out, "G1 E%.3f F%.2f\n", g.extrude(g.config.RetractLength()[0]), g.config.RetractSpeed()[0]*60)
+
+	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()*2)
+
+	fmt.Fprintf(g.out, "G1 X%.3f E%.3f F4000\n", atX+5.0, g.extrude(lineXSection*5.0/filamentXsection))
+
+	fmt.Fprintf(g.out, "G1 E-%.3f F%.2f\n", g.extrude(g.config.RetractLength()[0]), g.config.RetractSpeed()[0]*60)
+	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()*2.5)
+	fmt.Fprintf(g.out, "G1 X%.3f Y%.3f F9000\n", atX+boxWidth, atY-ystep)
+	fmt.Fprintf(g.out, "G1 E%.3f F%.2f\n", g.extrude(g.config.RetractLength()[0]), g.config.RetractSpeed()[0]*60)
+	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()*2)
+	fmt.Fprintf(g.out, "G1 X%.3f E%.3f F4000\n", atX+boxWidth-5.0, g.extrude(lineXSection*5.0/filamentXsection))
+	fmt.Fprintf(g.out, "G1 E-%.3f F%.2f\n", g.extrude(g.config.RetractLength()[0]), g.config.RetractSpeed()[0]*60)
+	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight()*2.5)
+
+	fmt.Fprintf(g.out, "; ---- annotating end ----\n")
 }
 
 func (g *Generator) toolchange(newTool int) {
-	g.splices = append(g.splices, splice{g.currentTool, g.currentStart, g.currentSplice})
+	g.splices = append(g.splices, splice{g.currentTool, g.currentStart + g.config.SpliceOffset(), g.currentSplice})
 	g.currentTool = newTool
 	g.currentSplice = 0.0
 	g.currentStart = g.totalExtruded
@@ -246,51 +306,73 @@ func main() {
 
 	// 1->2 at 1,0
 	gen.toolchange(1) // go to tool 2
-	gen.purgeSquare(1, 0, 500)
+	lasty := gen.purgeSquare(1, 0, 500)
 
 	// 2->3 at 2,1
 	gen.toolchange(2) // go to tool 3
-	gen.purgeSquare(2, 1, 500)
+	y := gen.purgeSquare(2, 1, 500)
+	gen.annotate(1, 0, lasty)
+	lasty = y
 
 	// 3->4 at 3,2
 	gen.toolchange(3) // go to tool 4
-	gen.purgeSquare(3, 2, 500)
+	y = gen.purgeSquare(3, 2, 500)
+	gen.annotate(2, 1, lasty)
+	lasty = y
 
 	// 4->1 at 0,3
 	gen.toolchange(0) // go to tool 1
-	gen.purgeSquare(0, 3, 500)
+	y = gen.purgeSquare(0, 3, 500)
+	gen.annotate(3, 2, lasty)
+	lasty = y
 
 	// 1->3 at 2,0
 	gen.toolchange(2) // go to tool 3
-	gen.purgeSquare(2, 0, 500)
+	y = gen.purgeSquare(2, 0, 500)
+	gen.annotate(0, 3, lasty)
+	lasty = y
 
 	// 3->2 at 1,2
 	gen.toolchange(1) // go to tool 2
-	gen.purgeSquare(1, 2, 500)
+	y = gen.purgeSquare(1, 2, 500)
+	gen.annotate(2, 0, lasty)
+	lasty = y
 
 	// 2->4 at 3,1
 	gen.toolchange(3) // go to tool 4
-	gen.purgeSquare(3, 1, 500)
+	y = gen.purgeSquare(3, 1, 500)
+	gen.annotate(1, 2, lasty)
+	lasty = y
 
 	// 4->3 at 2,3
 	gen.toolchange(2) // go to tool 3
-	gen.purgeSquare(2, 3, 500)
+	y = gen.purgeSquare(2, 3, 500)
+	gen.annotate(3, 1, lasty)
+	lasty = y
 
 	// 3->1 at 0,2
 	gen.toolchange(0) // go to tool 1
-	gen.purgeSquare(0, 2, 500)
+	y = gen.purgeSquare(0, 2, 500)
+	gen.annotate(2, 3, lasty)
+	lasty = y
 
 	// 1->4 at 3,0
 	gen.toolchange(3) // go to tool 4
-	gen.purgeSquare(3, 0, 500)
+	y = gen.purgeSquare(3, 0, 500)
+	gen.annotate(0, 2, lasty)
+	lasty = y
 
 	// 4->2 at 1,3
 	gen.toolchange(1) // go to tool 2
-	gen.purgeSquare(1, 3, 500)
+	y = gen.purgeSquare(1, 3, 500)
+	gen.annotate(3, 0, lasty)
+	lasty = y
 
 	// 2->1 at 0,1
 	gen.toolchange(0) // go to tool 1
-	gen.purgeSquare(0, 1, 500)
+	y = gen.purgeSquare(0, 1, 500)
+	gen.annotate(1, 3, lasty)
+	lasty = y
 
 	gen.writeEndGCode()
 

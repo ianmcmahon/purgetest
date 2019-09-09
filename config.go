@@ -97,8 +97,16 @@ func (c *Config) FirstLayerTemp() []string {
 	return c.AsStringArray("first_layer_temperature")
 }
 
+func (c *Config) RetractLength() []float64 {
+	return c.AsFloatArray("retract_length")
+}
+
+func (c *Config) RetractSpeed() []float64 {
+	return c.AsFloatArray("retract_speed")
+}
+
 func (c *Config) SpliceOffset() float64 {
-	return 50.0 // TODO: parse from config
+	return 100.0 // TODO: parse from config
 }
 
 func (c *Config) ExtraEndFilament() float64 {
