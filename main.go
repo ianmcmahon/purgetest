@@ -38,7 +38,7 @@ func (g *Generator) extrude(f float64) float64 {
 
 func (g *Generator) writeOmegaHeader(out io.Writer) {
 	fmt.Fprintf(out, "O21 D%04X ; msf version 2.0 (20 = 0x14)\n", 20)
-	fmt.Fprintf(out, "O22 Dcafebabefeedbeef\n") // TODO: take from config
+	fmt.Fprintf(out, "O22 D%s\n", g.config.PrinterProfileID())
 	fmt.Fprintf(out, "O23 D0001 ; unused\n")
 	fmt.Fprintf(out, "O24 D0000 ; unused\n")
 	fmt.Fprintf(out, "O25 D1FFFFFFWhite_PLA D10F80FFDodgerBlue_PLA D1E8D89AKhaki_PLA D1000000Black_PLA ; inputs: filament type + hex color + color_material\n") // TODO: take from config
@@ -86,9 +86,6 @@ func (g *Generator) writeStartGCode() {
 
 	//TODO: hardcoding this for now, need to parse extrusion done in the start code
 	g.extrude(21.5) // priming stroke
-	// is this the right way to add the splice offset?
-	//g.extrude(g.config.SpliceOffset())
-	//g.sinceLastPing -= g.config.SpliceOffset()
 }
 
 func (g *Generator) writeEndGCode() {
@@ -129,7 +126,6 @@ func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
 	width := (lineVolume / lineXSection) - ystep
 
 	//fmt.Printf("a %.2f x %.2f line has a cross-section of %.2fmm2, and that line %.2fmm long has a volume of %.3fmm3\n",
-	//	g.config.LayerHeight(), g.config.ExtrusionWidth(), lineXSection, (width + ystep), lineVolume)
 
 	filamentXsection := math.Pi * math.Pow(g.config.FilamentDiameter()[0]/2, 2) // tool 0
 	// volume is cross-section * length, so length is volume / cross-section
@@ -141,9 +137,6 @@ func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
 	XextrudeLength := Xvolume / filamentXsection
 	YextrudeLength := YstepVolume / filamentXsection
 
-	//fmt.Printf("X moves will be %.2f long and %.3fmm3, consuming %.3fmm filament\n", width, Xvolume, XextrudeLength)
-	//fmt.Printf("Ystep will be %.2f long and %.3fmm3, consuming %.3fmm filament\n", ystep, YstepVolume, YextrudeLength)
-
 	fmt.Fprintf(g.out, "\n; --- purge block at %.2f, %.2f layer height %.2f ---\n\n", atX, atY, g.config.LayerHeight())
 
 	Y := atY
@@ -152,6 +145,8 @@ func (g *Generator) purgeSquare(xIdx, yIdx int, volume float64) float64 {
 	// draw the outline first
 	boxHeight := ((volume / lineVolume) + 1) * g.config.ExtrusionWidth()
 	boxWidth := width + g.config.ExtrusionWidth()
+
+	// TODO:  fix hardcoded speeds
 
 	fmt.Fprintf(g.out, "G0 X%.3f Y%.3f F9000\n", atX+boxWidth, atY)
 	fmt.Fprintf(g.out, "G1 Z%.3f F600\n", g.config.LayerHeight())
@@ -378,8 +373,4 @@ func main() {
 
 	gen.writeOmegaHeader(outFile)
 	buf.WriteTo(outFile)
-
-	for _, f := range []float32{134.29, 302.96, 1528.69, 2201.30} {
-		fmt.Printf("%.2f = %s\n", f, floatToHex(f))
-	}
 }

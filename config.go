@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -22,11 +24,20 @@ func loadConfig(filename string) (*Config, error) {
 		rawvals: make(map[string]string, 0),
 	}
 
+	p2ppRE := regexp.MustCompile(`;\s*P2PP\s+(\S+)\s*=\s*(\S+)`)
+
 	scanner := bufio.NewScanner(file)
 	complete := false
 	for scanner.Scan() {
 		line := scanner.Text()
+
 		if !complete {
+			// need to catch the P2PP configs at the top
+			p2ppMatches := p2ppRE.FindStringSubmatch(line)
+			if len(p2ppMatches) == 3 {
+				config.rawvals[fmt.Sprintf("P2PP_%s", p2ppMatches[1])] = p2ppMatches[2]
+			}
+
 			if strings.HasPrefix(line, "; estimated printing time") {
 				complete = true
 			}
@@ -106,13 +117,18 @@ func (c *Config) RetractSpeed() []float64 {
 }
 
 func (c *Config) SpliceOffset() float64 {
-	return 100.0 // TODO: parse from config
+	return c.AsFloat("P2PP_SPLICEOFFSET")
 }
 
 func (c *Config) ExtraEndFilament() float64 {
-	return 300.0 // TODO: parse from config
+	return c.AsFloat("P2PP_EXTRAENDFILAMENT")
 }
 
 func (c *Config) LinearPing() float64 {
-	return 350.0 // TODO: parse from config
+	// TODO: need to support configs that don't define linearping
+	return c.AsFloat("P2PP_LINEARPING")
+}
+
+func (c *Config) PrinterProfileID() string {
+	return c.rawvals["P2PP_PRINTERPROFILE"]
 }
