@@ -26,6 +26,9 @@ type Generator struct {
 	sinceLastPing float64
 	splices       []splice
 	pings         []float64
+
+	squares      []square
+	colormarkers []square
 }
 
 func (g *Generator) extrude(f float64) float64 {
@@ -382,6 +385,14 @@ func main() {
 
 	gen.writeEndGCode()
 
-	gen.writeOmegaHeader(outFile)
-	buf.WriteTo(outFile)
+	gen.layoutSquares()
+	fmt.Printf("babbys: %v\n", gen.colormarkers)
+	fmt.Printf("squarz: %v\n", gen.squares)
+
+	if outFile == nil {
+		os.Exit(1)
+	}
+
+	//gen.writeOmegaHeader(outFile)
+	////buf.WriteTo(outFile)
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"image"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -131,4 +133,50 @@ func (c *Config) LinearPing() float64 {
 
 func (c *Config) PrinterProfileID() string {
 	return c.rawvals["P2PP_PRINTERPROFILE"]
+}
+
+// how much space between squares to leave
+// TODO: make configurable?
+func (c *Config) Padding() int {
+	return 5
+}
+
+// how much space around the edge of the bed area to leave
+// TODO: make configurable?
+func (c *Config) Margin() int {
+	return 10
+}
+
+// TODO: this will only support vanilla rectangular beds for now.  Investigate circular and custom.
+// ; bed_shape = 0x0,250x0,250x210,0x210
+func (c *Config) BedDimensions() image.Rectangle {
+	corners := strings.Split(c.rawvals["bed_shape"], ",")
+	min := image.Point{math.MaxInt32, math.MaxInt32}
+	max := image.Point{0, 0}
+	for _, c := range corners {
+		v := strings.Split(c, "x")
+
+		x, err := strconv.ParseInt(v[0], 10, 32)
+		if err != nil {
+			panic(err) // todo: handle gracefully
+		}
+		y, err := strconv.ParseInt(v[1], 10, 32)
+		if err != nil {
+			panic(err) // todo: handle gracefully
+		}
+
+		if int(x) < min.X {
+			min.X = int(x)
+		}
+		if int(x) > max.X {
+			max.X = int(x)
+		}
+		if int(y) < min.Y {
+			min.Y = int(y)
+		}
+		if int(y) > max.Y {
+			max.Y = int(y)
+		}
+	}
+	return image.Rectangle{min, max}
 }
